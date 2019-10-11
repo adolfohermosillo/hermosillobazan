@@ -38,7 +38,7 @@ class MakeRecordFn(beam.DoFn):
                'county_fips':county_fips}
      return [record] 
 
-PROJECT_ID = os.environ['trusty-wavelet-252622']
+PROJECT_ID = os.environ['PROJECT_ID']
 
 # Project ID is needed for BigQuery data source, even for local execution.
 options = {
@@ -67,13 +67,13 @@ with beam.Pipeline('DirectRunner', options=opts) as p:
     group_pcoll | 'Write to log 3' >> WriteToText('group_by_Location.txt')
   
     # apply ParDo to the PCollection
-    out_pcoll = group_pcoll | 'Deleting duplicates' >> beam.ParDo(DeleteDuplicates())
+    del_pcoll = group_pcoll | 'Deleting duplicates' >> beam.ParDo(DeleteDuplicates())
 
     # write PCollection to a file
-    out_pcoll | 'Write File' >> WriteToText('output.txt')
+    del_pcoll | 'Write File' >> WriteToText('output.txt')
 
     # make BQ records
-    out_pcoll = sum_pcoll | 'Make BQ Record' >> beam.ParDo(MakeRecordFn())
+    out_pcoll = del_pcoll | 'Make BQ Record' >> beam.ParDo(MakeRecordFn())
 
     qualified_table_name = PROJECT_ID + ':storm_events_modeled.Curated_Locations'
     table_schema = 'county_id:STRING,name:STRING,state_fips:INTEGER,county_fips:INTEGER'
