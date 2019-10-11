@@ -14,7 +14,7 @@ class ParseCountyNames(beam.DoFn):
     if county_name[-1] == ' ':
       county_name = county_name[-1]
     county_name = county_name.upper()
-    county_id = str(state_code)+"-"str(county_code)
+    county_id = str(state_code)+"-"+str(county_code)
     return [(county_id, [county_name, state_code, county_code])]
 
 # PTransform: sum up nominations for a given actor/actress
@@ -26,10 +26,19 @@ class DeleteDuplicates(beam.DoFn):
      state_fips = county_info[0][1]
      county_fips = county_info[0][2]
 
-     return [(county_id, name, state_fips,county_fips)]  
+     return [(county_id, name, state_fips, county_fips)]  
 
+# PTransform: format for BQ sink
+class MakeRecordFn(beam.DoFn):
+  def process(self, element):
+     county_id, name, state_fips,county_fips = element
+     record = {'county_id': county_id, 
+               'name':name, 
+               'state_fips':state_fips,
+               'county_fips':county_fips}
+     return [record] 
 
-PROJECT_ID = os.environ['PROJECT_ID']
+PROJECT_ID = os.environ['trusty-wavelet-252622']
 
 # Project ID is needed for BigQuery data source, even for local execution.
 options = {
@@ -62,3 +71,14 @@ with beam.Pipeline('DirectRunner', options=opts) as p:
 
     # write PCollection to a file
     out_pcoll | 'Write File' >> WriteToText('output.txt')
+
+    # make BQ records
+    out_pcoll = sum_pcoll | 'Make BQ Record' >> beam.ParDo(MakeRecordFn())
+
+    qualified_table_name = PROJECT_ID + ':storm_events_modeled.Curated_Locations'
+    table_schema = 'county_id:STRING,name:STRING,state_fips:INTEGER,county_fips:INTEGER'
+    
+    out_pcoll | 'Write to BigQuery' >> beam.io.Write(beam.io.BigQuerySink(qualified_table_name, 
+                                                    schema=table_schema,  
+                                                    create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+                                                    write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE))
